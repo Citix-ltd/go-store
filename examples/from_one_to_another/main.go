@@ -75,7 +75,7 @@ func fromS3ToLocal() {
 		panic(err)
 	}
 
-	err = localStore.StreamToFile(stream, "store/example.txt")
+	err = localStore.StreamToFile(stream, "store/example.txt", nil)
 	if err != nil {
 		panic(err)
 	}
@@ -99,7 +99,7 @@ func fromLocalToS3() {
 	}
 	defer stream.Close()
 
-	err = s3Store.StreamToFile(stream, _500MBFile)
+	err = s3Store.StreamToFile(stream, _500MBFile, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -120,7 +120,7 @@ func fromWebDavToLocal() {
 	}
 	defer stream.Close()
 
-	err = localStore.StreamToFile(stream, _1BFile)
+	err = localStore.StreamToFile(stream, _1BFile, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -143,7 +143,7 @@ func fromLocalToWebDav() {
 	}
 	defer stream.Close()
 
-	err = webDavStore.StreamToFile(stream, _1BFile)
+	err = webDavStore.StreamToFile(stream, _1BFile, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -173,7 +173,7 @@ func fromS3ToWebDav() {
 	}
 	defer stream.Close()
 
-	err = webDavStore.StreamToFile(stream, _500MBFile)
+	err = webDavStore.StreamToFile(stream, _500MBFile, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -203,7 +203,7 @@ func fromWebDavToS3() {
 	}
 	defer stream.Close()
 
-	err = s3Store.StreamToFile(stream, _1BFile)
+	err = s3Store.StreamToFile(stream, _1BFile, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -262,7 +262,7 @@ func fromS3ToWebDavPartially() {
 		}
 		defer stream.Close()
 
-		return webDavStore.StreamToFile(stream, _500MBFileName)
+		return webDavStore.StreamToFile(stream, _500MBFileName, nil)
 	}
 
 	for {

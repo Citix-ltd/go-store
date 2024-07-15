@@ -54,7 +54,9 @@ func main() {
 func create(s store.StoreIFace, file string) {
 	err := s.CreateFile(
 		file,
-		[]byte("Hello, World!"), map[string]string{
+		[]byte("Hello, World!"),
+		nil,
+		map[string]string{
 			"key1": "value1",
 		})
 
@@ -81,7 +83,7 @@ func streamToFile(s store.StoreIFace, file string) {
 		panic(err)
 	}
 
-	err = s.StreamToFile(stream, "streamed.txt")
+	err = s.StreamToFile(stream, "streamed.txt", nil)
 
 	if err != nil {
 		panic(err)

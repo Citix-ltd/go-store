@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 type Local struct {
@@ -25,7 +26,7 @@ func (l *Local) IsExist(filePath string) bool {
 // path - путь к файлу
 // file - содержимое файла
 // meta - метаданные файла
-func (l *Local) CreateFile(path string, file []byte, meta map[string]string) error {
+func (l *Local) CreateFile(path string, file []byte, ttl *time.Time, meta map[string]string) error {
 	if meta != nil {
 		if err := os.WriteFile(path+META_PREFIX, meta2Bytes(meta), perm); err != nil {
 			return err
@@ -37,7 +38,7 @@ func (l *Local) CreateFile(path string, file []byte, meta map[string]string) err
 // StreamToFile - записывает содержимое потока в файл
 // stream - поток
 // path - путь к файлу
-func (l *Local) StreamToFile(stream io.Reader, path string) error {
+func (l *Local) StreamToFile(stream io.Reader, path string, ttl *time.Time) error {
 	file, err := os.Create(path)
 	if err != nil {
 		return err
@@ -174,13 +175,13 @@ func (l *Local) MkdirAll(path string) error {
 // path - путь к файлу
 // data - данные
 // meta - метаданные
-func (l *Local) CreateJsonFile(path string, data interface{}, meta map[string]string) error {
+func (l *Local) CreateJsonFile(path string, data interface{}, ttl *time.Time, meta map[string]string) error {
 	content, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		return err
 	}
 
-	return l.CreateFile(path, content, meta)
+	return l.CreateFile(path, content, ttl, meta)
 }
 
 // GetJsonFile - возвращает содержимое файла в формате JSON

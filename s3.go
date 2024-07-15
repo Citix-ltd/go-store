@@ -86,12 +86,13 @@ func (s *S3) IsExist(filePath string) bool {
 // path - путь к файлу
 // file - содержимое файла
 // meta - метаданные файла
-func (s *S3) CreateFile(path string, file []byte, meta map[string]string) error {
+func (s *S3) CreateFile(path string, file []byte, ttl *time.Time, meta map[string]string) error {
 	_, err := s.client.PutObject(&s3.PutObjectInput{
 		Bucket:   s.S3Bucket,
 		Key:      aws.String(path),
 		Body:     bytes.NewReader(file),
 		Metadata: aws.StringMap(meta),
+		Expires:  ttl,
 	})
 
 	return err
@@ -100,12 +101,13 @@ func (s *S3) CreateFile(path string, file []byte, meta map[string]string) error 
 // StreamToFile - записывает содержимое потока в файл
 // stream - поток
 // path - путь к файлу
-func (s *S3) StreamToFile(stream io.Reader, path string) error {
+func (s *S3) StreamToFile(stream io.Reader, path string, ttl *time.Time) error {
 	buf := make([]byte, 1024*1024*5) // 5MB
 
 	resp, err := s.client.CreateMultipartUpload(&s3.CreateMultipartUploadInput{
-		Bucket: s.S3Bucket,
-		Key:    aws.String(path),
+		Bucket:  s.S3Bucket,
+		Key:     aws.String(path),
+		Expires: ttl,
 	})
 	if err != nil {
 		return err
@@ -280,12 +282,12 @@ func (s *S3) MkdirAll(path string) error {
 // CreateJsonFile - создает json файл
 // path - путь к файлу
 // data - данные для записи
-func (s *S3) CreateJsonFile(path string, data interface{}, meta map[string]string) error {
+func (s *S3) CreateJsonFile(path string, data interface{}, ttl *time.Time, meta map[string]string) error {
 	content, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		return err
 	}
-	return s.CreateFile(path, content, meta)
+	return s.CreateFile(path, content, ttl, meta)
 }
 
 // GetJsonFile - получает файл и десериализует его в переменную

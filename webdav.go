@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"time"
 
 	"github.com/studio-b12/gowebdav"
 )
@@ -29,7 +30,7 @@ func (w *WebDav) IsExist(filePath string) bool {
 // path - путь к файлу
 // file - содержимое файла
 // meta - метаданные файла
-func (w *WebDav) CreateFile(path string, file []byte, meta map[string]string) error {
+func (w *WebDav) CreateFile(path string, file []byte, ttl *time.Time, meta map[string]string) error {
 	if meta != nil {
 		if err := w.client.Write(path+META_PREFIX, meta2Bytes(meta), perm); err != nil {
 			return err
@@ -42,7 +43,7 @@ func (w *WebDav) CreateFile(path string, file []byte, meta map[string]string) er
 // StreamToFile - записывает содержимое потока в файл
 // stream - поток
 // path - путь к файлу
-func (w *WebDav) StreamToFile(stream io.Reader, path string) error {
+func (w *WebDav) StreamToFile(stream io.Reader, path string, ttl *time.Time) error {
 	return w.client.WriteStream(path, stream, perm)
 }
 
@@ -136,12 +137,12 @@ func (w *WebDav) MkdirAll(path string) error {
 // path - путь к файлу
 // data - данные
 // meta - метаданные
-func (w *WebDav) CreateJsonFile(path string, data interface{}, meta map[string]string) error {
+func (w *WebDav) CreateJsonFile(path string, data interface{}, ttl *time.Time, meta map[string]string) error {
 	content, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		return err
 	}
-	return w.CreateFile(path, content, meta)
+	return w.CreateFile(path, content, ttl, meta)
 }
 
 // GetJsonFile - возвращает данные из файла в формате JSON
