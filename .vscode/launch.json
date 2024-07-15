@@ -1,0 +1,36 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name":"from_one_to_another",
+            "type":"go",
+            "request":"launch",
+            "program": "${workspaceRoot}/examples/from_one_to_another",
+            "args": ["--choice", "7"],
+        },
+        {
+            "name":"webdav",
+            "type":"go",
+            "request":"launch",
+            "program": "${workspaceRoot}/examples/webdav",
+            "args": ["--choice", "2"],
+        },
+        {
+            "name":"s3",
+            "type":"go",
+            "request":"launch",
+            "program": "${workspaceRoot}/examples/s3",
+            "args": ["--choice", "5"],
+        },
+        {
+            "name":"local",
+            "type":"go",
+            "request":"launch",
+            "program": "${workspaceRoot}/examples/local",
+            "args": ["--choice", "5"],
+        }
+    ]
+}
