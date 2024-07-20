@@ -21,7 +21,6 @@ type StoreIFace interface {
 	Stat(string) (os.FileInfo, map[string]string, error)
 	MkdirAll(string) error
 	// with ctx
-	IsExistWithContext(context.Context, string) bool
 	CreateFileWithContext(context.Context, string, []byte, *time.Time, map[string]string) error
 	CopyFileWithContext(context.Context, string, string, *time.Time, map[string]string) error
 	MoveFileWithContext(context.Context, string, string) error
