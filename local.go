@@ -28,11 +28,135 @@ func (l *Local) IsExist(filePath string) bool {
 // meta - метаданные файла
 func (l *Local) CreateFile(path string, file []byte, ttl *time.Time, meta map[string]string) error {
 	if meta != nil {
-		if err := os.WriteFile(path+META_PREFIX, meta2Bytes(meta), perm); err != nil {
+		return os.WriteFile(path+META_PREFIX, meta2Bytes(meta), perm)
+	}
+	return os.WriteFile(path, file, perm)
+}
+
+// CopyFile - копирует файл
+// src - исходный путь к файлу
+// dst - путь куда копировать
+// ttl - время жизни
+// meta - метаданные
+func (l *Local) CopyFile(src, dst string, ttl *time.Time, meta map[string]string) error {
+	//Main file
+	source, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+
+	destination, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer destination.Close()
+
+	if _, err := io.Copy(destination, source); err != nil {
+		return err
+	}
+
+	if err := destination.Sync(); err != nil {
+		return err
+	}
+
+	//Meta file
+	currentMetaInfo, err := os.Stat(src + META_PREFIX)
+	if err != nil {
+		if !os.IsNotExist(err) {
 			return err
 		}
 	}
-	return os.WriteFile(path, file, perm)
+
+	if currentMetaInfo != nil && currentMetaInfo.Size() > 0 {
+		currentMeta, err := os.ReadFile(src + META_PREFIX)
+		if err != nil {
+			return err
+		}
+
+		currentMetaMap := bytes2Meta(currentMeta)
+
+		for k, v := range meta {
+			currentMetaMap[k] = v
+		}
+
+		return os.WriteFile(dst+META_PREFIX, meta2Bytes(currentMetaMap), perm)
+
+	} else if meta != nil {
+		return os.WriteFile(dst+META_PREFIX, meta2Bytes(meta), perm)
+	}
+
+	return nil
+}
+
+// MoveFile - перемещает файл
+// src - исходный путь к файлу
+// dst - путь куда переместить
+func (l *Local) MoveFile(src, dst string) error {
+	inputFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer inputFile.Close()
+
+	outputFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer outputFile.Close()
+
+	_, err = io.Copy(outputFile, inputFile)
+	if err != nil {
+		return err
+	}
+
+	inputFile.Close() // for Windows, close before trying to remove: https://stackoverflow.com/a/64943554/246801
+
+	if err := os.Remove(src); err != nil {
+		return err
+	}
+
+	if err := outputFile.Sync(); err != nil {
+		return err
+	}
+
+	metaFile, err := os.Stat(src)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+	}
+
+	if metaFile != nil && metaFile.Size() > 0 {
+		metaInputFile, err := os.Open(src + META_PREFIX)
+		if err != nil {
+			return err
+		}
+		defer metaInputFile.Close()
+
+		metaOutputFile, err := os.Create(dst + META_PREFIX)
+		if err != nil {
+			return err
+		}
+		defer metaOutputFile.Close()
+
+		_, err = io.Copy(metaOutputFile, metaInputFile)
+		if err != nil {
+			return err
+		}
+
+		metaInputFile.Close() // for Windows, close before trying to remove: https://stackoverflow.com/a/64943554/246801
+
+		if err := os.Remove(src + META_PREFIX); err != nil {
+			return err
+		}
+
+		if err := metaOutputFile.Sync(); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // StreamToFile - записывает содержимое потока в файл
@@ -131,12 +255,8 @@ func (l *Local) Stat(path string) (os.FileInfo, map[string]string, error) {
 		return nil, nil, err
 	}
 
-	isExist := l.IsExist(path + META_PREFIX)
-	if !isExist {
-		return info, nil, nil
-	}
-
-	meta, err := os.ReadFile(path + META_PREFIX)
+	// get meta data
+	meta, err := l.GetFile(path + META_PREFIX)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -21,6 +21,14 @@ func (l *Empty) CreateFile(path string, file []byte, ttl *time.Time, meta map[st
 	return nil
 }
 
+func (l *Empty) CopyFile(src, dst string, ttl *time.Time, meta map[string]string) error {
+	return nil
+}
+
+func (l *Empty) MoveFile(src, dst string) error {
+	return nil
+}
+
 func (l *Empty) StreamToFile(stream io.Reader, path string, ttl *time.Time) error {
 	return nil
 }

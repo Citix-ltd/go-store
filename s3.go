@@ -98,6 +98,85 @@ func (s *S3) CreateFile(path string, file []byte, ttl *time.Time, meta map[strin
 	return err
 }
 
+// CopyFile - копирует файл
+// src - исходный путь к файлу
+// dst - путь куда копировать
+// ttl - время жизни
+// meta - метаданные
+func (s *S3) CopyFile(src, dst string, ttl *time.Time, meta map[string]string) error {
+	// Тянем метаданные из исходного файла
+	// и обогащаем их новыми данными если таковые есть
+	head, err := s.client.HeadObject(&s3.HeadObjectInput{
+		Bucket: s.S3Bucket,
+		Key:    aws.String(src),
+	})
+
+	if err != nil {
+		return err
+	}
+
+	currentMeta := aws.StringValueMap(head.Metadata)
+
+	for k, v := range meta {
+		currentMeta[k] = v
+	}
+
+	_, err = s.client.CopyObject(&s3.CopyObjectInput{
+		Bucket:            s.S3Bucket,
+		CopySource:        aws.String(fmt.Sprintf("%s/%s", *s.S3Bucket, src)),
+		Key:               aws.String(dst),
+		Metadata:          aws.StringMap(currentMeta),
+		MetadataDirective: aws.String("REPLACE"),
+		Expires:           ttl,
+	})
+
+	return err
+}
+
+// MoveFile - перемещает файл
+// src - исходный путь к файлу
+// dst - путь куда переместить
+func (s *S3) MoveFile(src, dst string) error {
+	_, err := s.client.CopyObject(&s3.CopyObjectInput{
+		Bucket:     s.S3Bucket,
+		CopySource: aws.String(fmt.Sprintf("%s/%s", *s.S3Bucket, src)),
+		Key:        aws.String(dst),
+	})
+
+	if err != nil {
+		return err
+	}
+
+	err = s.client.WaitUntilObjectExists(&s3.HeadObjectInput{
+		Bucket: s.S3Bucket,
+		Key:    aws.String(dst),
+	})
+
+	if err != nil {
+		return err
+	}
+
+	_, err = s.client.DeleteObject(&s3.DeleteObjectInput{
+		Bucket: s.S3Bucket,
+		Key:    aws.String(src),
+	})
+
+	if err != nil {
+		return err
+	}
+
+	err = s.client.WaitUntilObjectNotExists(&s3.HeadObjectInput{
+		Bucket: s.S3Bucket,
+		Key:    aws.String(src),
+	})
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // StreamToFile - записывает содержимое потока в файл
 // stream - поток
 // path - путь к файлу

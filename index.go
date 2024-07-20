@@ -27,6 +27,8 @@ type StoreConfigIFace interface {
 type StoreIFace interface {
 	IsExist(string) bool
 	CreateFile(string, []byte, *time.Time, map[string]string) error
+	CopyFile(string, string, *time.Time, map[string]string) error
+	MoveFile(string, string) error
 	StreamToFile(io.Reader, string, *time.Time) error
 	GetFile(path string) ([]byte, error)
 	GetFilePartially(string, int64, int64) ([]byte, error)
@@ -139,4 +141,10 @@ func bytes2Meta(b []byte) map[string]string {
 		meta[string(pair[0])] = string(pair[1])
 	}
 	return meta
+}
+
+func overwriteMap(dst, src map[string]string) {
+	for k, v := range src {
+		dst[k] = v
+	}
 }

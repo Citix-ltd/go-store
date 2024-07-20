@@ -40,6 +40,42 @@ func (w *WebDav) CreateFile(path string, file []byte, ttl *time.Time, meta map[s
 	return w.client.Write(path, file, perm)
 }
 
+// CopyFile - копирует файл
+// src - исходный путь к файлу
+// dst - путь куда копировать
+// ttl - время жизни
+// meta - метаданные
+func (w *WebDav) CopyFile(src, dst string, ttl *time.Time, meta map[string]string) error {
+	currMetaIsExist := w.IsExist(src + META_PREFIX)
+
+	if currMetaIsExist {
+		currentMeta, err := w.GetFile(src + META_PREFIX)
+		if err != nil {
+			return err
+		}
+
+		currentMetaMap := bytes2Meta(currentMeta)
+
+		for k, v := range meta {
+			currentMetaMap[k] = v
+		}
+
+		if err := w.client.Write(dst+META_PREFIX, meta2Bytes(currentMetaMap), perm); err != nil {
+			return err
+		}
+	}
+
+	return w.client.Copy(src, dst, true)
+}
+
+// MoveFile - перемещает файл
+// src - исходный путь к файлу
+// dst - путь куда переместить
+func (w *WebDav) MoveFile(src, dst string) error {
+	w.client.Rename(src+META_PREFIX, dst+META_PREFIX, true)
+	return w.client.Rename(src, dst, true)
+}
+
 // StreamToFile - записывает содержимое потока в файл
 // stream - поток
 // path - путь к файлу
