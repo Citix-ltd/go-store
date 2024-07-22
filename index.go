@@ -21,6 +21,11 @@ const (
 	META_PREFIX = ".meta"
 )
 
+var (
+	ErrFileNotFound = errors.New("file not found")
+	ErrIsNotDir     = errors.New("is not a directory")
+)
+
 type StoreConfigIFace interface {
 	aws.Config | WebDavConfig | EmptyConfig | LocalConfig
 }

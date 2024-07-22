@@ -135,6 +135,11 @@ func (s *S3) CopyFileWithContext(ctx context.Context, src, dst string, ttl *time
 		})
 
 	if err != nil {
+		if awsErr, ok := err.(awserr.Error); ok {
+			if awsErr.Code() == "NotFound" {
+				return ErrFileNotFound
+			}
+		}
 		return err
 	}
 
@@ -178,6 +183,11 @@ func (s *S3) MoveFileWithContext(ctx context.Context, src, dst string) error {
 		})
 
 	if err != nil {
+		if awsErr, ok := err.(awserr.Error); ok {
+			if awsErr.Code() == "NotFound" {
+				return ErrFileNotFound
+			}
+		}
 		return err
 	}
 
@@ -210,11 +220,7 @@ func (s *S3) MoveFileWithContext(ctx context.Context, src, dst string) error {
 			Key:    aws.String(src),
 		})
 
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }
 
 // StreamToFile - записывает содержимое потока в файл
@@ -359,6 +365,11 @@ func (s *S3) FileReaderWithContext(ctx context.Context, path string, offset, len
 		})
 
 	if err != nil {
+		if awsErr, ok := err.(awserr.Error); ok {
+			if awsErr.Code() == "NotFound" {
+				return nil, ErrFileNotFound
+			}
+		}
 		return nil, err
 	}
 
@@ -380,6 +391,14 @@ func (s *S3) RemoveFileWithContext(ctx context.Context, path string) error {
 			Bucket: s.S3Bucket,
 			Key:    aws.String(path),
 		})
+
+	if err != nil {
+		if awsErr, ok := err.(awserr.Error); ok {
+			if awsErr.Code() == "NotFound" {
+				return ErrFileNotFound
+			}
+		}
+	}
 
 	return err
 }
@@ -403,6 +422,11 @@ func (s *S3) StatWithContext(ctx context.Context, path string) (os.FileInfo, map
 		})
 
 	if err != nil {
+		if awsErr, ok := err.(awserr.Error); ok {
+			if awsErr.Code() == "NotFound" {
+				return nil, nil, ErrFileNotFound
+			}
+		}
 		return nil, nil, err
 	}
 

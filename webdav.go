@@ -79,7 +79,12 @@ func (w *WebDav) CopyFile(src, dst string, ttl *time.Time, meta map[string]strin
 		}
 	}
 
-	return w.client.Copy(src, dst, true)
+	err := w.client.Copy(src, dst, true)
+
+	if err != nil && gowebdav.IsErrNotFound(err) {
+		return ErrFileNotFound
+	}
+	return err
 }
 
 // CopyFileWithContext - копирует файл
@@ -101,7 +106,12 @@ func (w *WebDav) CopyFileWithContext(ctx context.Context, src, dst string, ttl *
 // dst - путь куда переместить
 func (w *WebDav) MoveFile(src, dst string) error {
 	w.client.Rename(src+META_PREFIX, dst+META_PREFIX, true)
-	return w.client.Rename(src, dst, true)
+	err := w.client.Rename(src, dst, true)
+
+	if err != nil && gowebdav.IsErrNotFound(err) {
+		return ErrFileNotFound
+	}
+	return err
 }
 
 // MoveFileWithContext - перемещает файл
@@ -120,7 +130,11 @@ func (w *WebDav) MoveFileWithContext(ctx context.Context, src, dst string) error
 // stream - поток
 // path - путь к файлу
 func (w *WebDav) StreamToFile(stream io.Reader, path string, ttl *time.Time) error {
-	return w.client.WriteStream(path, stream, perm)
+	err := w.client.WriteStream(path, stream, perm)
+	if err != nil && gowebdav.IsErrNotFound(err) {
+		return ErrFileNotFound
+	}
+	return err
 }
 
 // StreamToFileWithContext - записывает содержимое потока в файл
@@ -197,7 +211,11 @@ func (w *WebDav) GetFilePartiallyWithContext(ctx context.Context, path string, o
 // offset - смещение
 // length - длина
 func (w *WebDav) FileReader(path string, offset, length int64) (io.ReadCloser, error) {
-	return w.client.ReadStreamRange(path, offset, length)
+	reader, err := w.client.ReadStreamRange(path, offset, length)
+	if err != nil && gowebdav.IsErrNotFound(err) {
+		return nil, ErrFileNotFound
+	}
+	return reader, err
 }
 
 // FileReaderWithContext - возвращает io.ReadCloser для чтения файла
@@ -217,7 +235,11 @@ func (w *WebDav) FileReaderWithContext(ctx context.Context, path string, offset,
 // path - путь к файлу
 func (w *WebDav) RemoveFile(path string) error {
 	w.client.Remove(path + META_PREFIX)
-	return w.client.Remove(path)
+	err := w.client.Remove(path)
+	if err != nil && gowebdav.IsErrNotFound(err) {
+		return ErrFileNotFound
+	}
+	return err
 }
 
 // RemoveFileWithContext - удаляет файл
@@ -236,6 +258,9 @@ func (w *WebDav) RemoveFileWithContext(ctx context.Context, path string) error {
 func (w *WebDav) Stat(path string) (os.FileInfo, map[string]string, error) {
 	info, err := w.client.Stat(path)
 	if err != nil {
+		if gowebdav.IsErrNotFound(err) {
+			return nil, nil, ErrFileNotFound
+		}
 		return nil, nil, err
 	}
 

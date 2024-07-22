@@ -121,6 +121,10 @@ func (l *Local) CopyFileWithContext(ctx context.Context, src, dst string, ttl *t
 // src - исходный путь к файлу
 // dst - путь куда переместить
 func (l *Local) MoveFile(src, dst string) error {
+	if _, err := os.Stat(src); os.IsNotExist(err) {
+		return ErrFileNotFound
+	}
+
 	inputFile, err := os.Open(src)
 	if err != nil {
 		return err
@@ -148,7 +152,7 @@ func (l *Local) MoveFile(src, dst string) error {
 		return err
 	}
 
-	metaFile, err := os.Stat(src)
+	metaFile, err := os.Stat(src + META_PREFIX)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return err
@@ -332,7 +336,11 @@ func (l *Local) FileReaderWithContext(ctx context.Context, path string, offset, 
 // path - путь к файлу
 func (l *Local) RemoveFile(path string) error {
 	os.Remove(path + META_PREFIX)
-	return os.Remove(path)
+	err := os.Remove(path)
+	if err != nil && os.IsNotExist(err) {
+		return ErrFileNotFound
+	}
+	return err
 }
 
 // RemoveFileWithContext - удаляет файл
@@ -351,6 +359,9 @@ func (l *Local) RemoveFileWithContext(ctx context.Context, path string) error {
 func (l *Local) Stat(path string) (os.FileInfo, map[string]string, error) {
 	info, err := os.Stat(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil, ErrFileNotFound
+		}
 		return nil, nil, err
 	}
 
@@ -377,6 +388,18 @@ func (l *Local) StatWithContext(ctx context.Context, path string) (os.FileInfo, 
 // ClearDir - очищает директорию
 // path - путь к директории
 func (l *Local) ClearDir(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ErrFileNotFound
+		}
+		return err
+	}
+
+	if !info.IsDir() {
+		return ErrIsNotDir
+	}
+
 	d, err := os.Open(path)
 	if err != nil {
 		return err
