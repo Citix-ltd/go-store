@@ -2,6 +2,7 @@ package store
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -40,6 +41,19 @@ func (w *WebDav) CreateFile(path string, file []byte, ttl *time.Time, meta map[s
 	return w.client.Write(path, file, perm)
 }
 
+// CreateFileWithContext - создает файл
+// path - путь к файлу
+// file - содержимое файла
+// meta - метаданные файла
+func (w *WebDav) CreateFileWithContext(ctx context.Context, path string, file []byte, ttl *time.Time, meta map[string]string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return w.CreateFile(path, file, ttl, meta)
+	}
+}
+
 // CopyFile - копирует файл
 // src - исходный путь к файлу
 // dst - путь куда копировать
@@ -65,7 +79,26 @@ func (w *WebDav) CopyFile(src, dst string, ttl *time.Time, meta map[string]strin
 		}
 	}
 
-	return w.client.Copy(src, dst, true)
+	err := w.client.Copy(src, dst, true)
+
+	if err != nil && gowebdav.IsErrNotFound(err) {
+		return ErrFileNotFound
+	}
+	return err
+}
+
+// CopyFileWithContext - копирует файл
+// src - исходный путь к файлу
+// dst - путь куда копировать
+// ttl - время жизни
+// meta - метаданные
+func (w *WebDav) CopyFileWithContext(ctx context.Context, src, dst string, ttl *time.Time, meta map[string]string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return w.CopyFile(src, dst, ttl, meta)
+	}
 }
 
 // MoveFile - перемещает файл
@@ -73,14 +106,48 @@ func (w *WebDav) CopyFile(src, dst string, ttl *time.Time, meta map[string]strin
 // dst - путь куда переместить
 func (w *WebDav) MoveFile(src, dst string) error {
 	w.client.Rename(src+META_PREFIX, dst+META_PREFIX, true)
-	return w.client.Rename(src, dst, true)
+	err := w.client.Rename(src, dst, true)
+
+	if err != nil && gowebdav.IsErrNotFound(err) {
+		return ErrFileNotFound
+	}
+	return err
+}
+
+// MoveFileWithContext - перемещает файл
+// src - исходный путь к файлу
+// dst - путь куда переместить
+func (w *WebDav) MoveFileWithContext(ctx context.Context, src, dst string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return w.MoveFile(src, dst)
+	}
 }
 
 // StreamToFile - записывает содержимое потока в файл
 // stream - поток
 // path - путь к файлу
 func (w *WebDav) StreamToFile(stream io.Reader, path string, ttl *time.Time) error {
-	return w.client.WriteStream(path, stream, perm)
+	err := w.client.WriteStream(path, stream, perm)
+	if err != nil && gowebdav.IsErrNotFound(err) {
+		return ErrFileNotFound
+	}
+	return err
+}
+
+// StreamToFileWithContext - записывает содержимое потока в файл
+// stream - поток
+// path - путь к файлу
+func (w *WebDav) StreamToFileWithContext(ctx context.Context, stream io.Reader, path string, ttl *time.Time) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return w.StreamToFile(stream, path, ttl)
+	}
+
 }
 
 // GetFile - возвращает содержимое файла
@@ -90,6 +157,17 @@ func (w *WebDav) GetFile(path string) ([]byte, error) {
 		return nil, nil
 	}
 	return w.client.Read(path)
+}
+
+// GetFileWithContext - возвращает содержимое файла
+// path - путь к файлу
+func (w *WebDav) GetFileWithContext(ctx context.Context, path string) ([]byte, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+		return w.GetFile(path)
+	}
 }
 
 // GetFilePartially - возвращает часть содержимого файла
@@ -115,19 +193,64 @@ func (w *WebDav) GetFilePartially(path string, offset, length int64) ([]byte, er
 	return buf.Bytes(), nil
 }
 
+// GetFilePartiallyWithContext - возвращает часть содержимого файла
+// path - путь к файлу
+// offset - смещение
+// length - длина
+func (w *WebDav) GetFilePartiallyWithContext(ctx context.Context, path string, offset, length int64) ([]byte, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+		return w.GetFilePartially(path, offset, length)
+	}
+}
+
 // FileReader - возвращает io.ReadCloser для чтения файла
 // path - путь к файлу
 // offset - смещение
 // length - длина
 func (w *WebDav) FileReader(path string, offset, length int64) (io.ReadCloser, error) {
-	return w.client.ReadStreamRange(path, offset, length)
+	reader, err := w.client.ReadStreamRange(path, offset, length)
+	if err != nil && gowebdav.IsErrNotFound(err) {
+		return nil, ErrFileNotFound
+	}
+	return reader, err
+}
+
+// FileReaderWithContext - возвращает io.ReadCloser для чтения файла
+// path - путь к файлу
+// offset - смещение
+// length - длина
+func (w *WebDav) FileReaderWithContext(ctx context.Context, path string, offset, length int64) (io.ReadCloser, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+		return w.FileReader(path, offset, length)
+	}
 }
 
 // RemoveFile - удаляет файл
 // path - путь к файлу
 func (w *WebDav) RemoveFile(path string) error {
 	w.client.Remove(path + META_PREFIX)
-	return w.client.Remove(path)
+	err := w.client.Remove(path)
+	if err != nil && gowebdav.IsErrNotFound(err) {
+		return ErrFileNotFound
+	}
+	return err
+}
+
+// RemoveFileWithContext - удаляет файл
+// path - путь к файлу
+func (w *WebDav) RemoveFileWithContext(ctx context.Context, path string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return w.RemoveFile(path)
+	}
 }
 
 // Stat - возвращает информацию о файле и метаданные
@@ -135,6 +258,9 @@ func (w *WebDav) RemoveFile(path string) error {
 func (w *WebDav) Stat(path string) (os.FileInfo, map[string]string, error) {
 	info, err := w.client.Stat(path)
 	if err != nil {
+		if gowebdav.IsErrNotFound(err) {
+			return nil, nil, ErrFileNotFound
+		}
 		return nil, nil, err
 	}
 
@@ -151,6 +277,17 @@ func (w *WebDav) Stat(path string) (os.FileInfo, map[string]string, error) {
 	return info, bytes2Meta(meta), nil
 }
 
+// StatWithContext - возвращает информацию о файле и метаданные
+// path - путь к файлу
+func (w *WebDav) StatWithContext(ctx context.Context, path string) (os.FileInfo, map[string]string, error) {
+	select {
+	case <-ctx.Done():
+		return nil, nil, ctx.Err()
+	default:
+		return w.Stat(path)
+	}
+}
+
 // ClearDir - очищает директорию
 // path - путь к директории
 func (w *WebDav) ClearDir(path string) error {
@@ -163,10 +300,32 @@ func (w *WebDav) ClearDir(path string) error {
 	return nil
 }
 
+// ClearDirWithContext - очищает директорию
+// path - путь к директории
+func (w *WebDav) ClearDirWithContext(ctx context.Context, path string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return w.ClearDir(path)
+	}
+}
+
 // MkdirAll - создает директорию
 // path - путь к директории
 func (w *WebDav) MkdirAll(path string) error {
 	return w.client.MkdirAll(path, perm)
+}
+
+// MkdirAllWithContext - создает директорию
+// path - путь к директории
+func (w *WebDav) MkdirAllWithContext(ctx context.Context, path string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return w.MkdirAll(path)
+	}
 }
 
 // CreateJsonFile - создает файл с данными в формате JSON
@@ -181,6 +340,19 @@ func (w *WebDav) CreateJsonFile(path string, data interface{}, ttl *time.Time, m
 	return w.CreateFile(path, content, ttl, meta)
 }
 
+// CreateJsonFileWithContext - создает файл с данными в формате JSON
+// path - путь к файлу
+// data - данные
+// meta - метаданные
+func (w *WebDav) CreateJsonFileWithContext(ctx context.Context, path string, data interface{}, ttl *time.Time, meta map[string]string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return w.CreateJsonFile(path, data, ttl, meta)
+	}
+}
+
 // GetJsonFile - возвращает данные из файла в формате JSON
 // path - путь к файлу
 // file - переменная для записи данных
@@ -193,4 +365,16 @@ func (w *WebDav) GetJsonFile(path string, file interface{}) error {
 		return nil
 	}
 	return json.Unmarshal(content, file)
+}
+
+// GetJsonFileWithContext - возвращает данные из файла в формате JSON
+// path - путь к файлу
+// file - переменная для записи данных
+func (w *WebDav) GetJsonFileWithContext(ctx context.Context, path string, file interface{}) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return w.GetJsonFile(path, file)
+	}
 }

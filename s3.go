@@ -2,6 +2,7 @@ package store
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -65,10 +66,11 @@ func (s *S3) init(cfg S3Config) error {
 // IsExist - проверяет существование файла
 // filePath - путь к файлу
 func (s *S3) IsExist(filePath string) bool {
-	_, err := s.client.HeadObject(&s3.HeadObjectInput{
-		Bucket: s.S3Bucket,
-		Key:    aws.String(filePath),
-	})
+	_, err := s.client.HeadObject(
+		&s3.HeadObjectInput{
+			Bucket: s.S3Bucket,
+			Key:    aws.String(filePath),
+		})
 
 	if err != nil {
 		if awsErr, ok := err.(awserr.Error); ok {
@@ -87,13 +89,23 @@ func (s *S3) IsExist(filePath string) bool {
 // file - содержимое файла
 // meta - метаданные файла
 func (s *S3) CreateFile(path string, file []byte, ttl *time.Time, meta map[string]string) error {
-	_, err := s.client.PutObject(&s3.PutObjectInput{
-		Bucket:   s.S3Bucket,
-		Key:      aws.String(path),
-		Body:     bytes.NewReader(file),
-		Metadata: aws.StringMap(meta),
-		Expires:  ttl,
-	})
+	return s.CreateFileWithContext(context.Background(), path, file, ttl, meta)
+}
+
+// CreateFileWithContext - создает файл
+// path - путь к файлу
+// file - содержимое файла
+// meta - метаданные файла
+func (s *S3) CreateFileWithContext(ctx context.Context, path string, file []byte, ttl *time.Time, meta map[string]string) error {
+	_, err := s.client.PutObjectWithContext(
+		ctx,
+		&s3.PutObjectInput{
+			Bucket:   s.S3Bucket,
+			Key:      aws.String(path),
+			Body:     bytes.NewReader(file),
+			Metadata: aws.StringMap(meta),
+			Expires:  ttl,
+		})
 
 	return err
 }
@@ -104,14 +116,30 @@ func (s *S3) CreateFile(path string, file []byte, ttl *time.Time, meta map[strin
 // ttl - время жизни
 // meta - метаданные
 func (s *S3) CopyFile(src, dst string, ttl *time.Time, meta map[string]string) error {
+	return s.CopyFileWithContext(context.Background(), src, dst, ttl, meta)
+}
+
+// CopyFileWithContext - копирует файл
+// src - исходный путь к файлу
+// dst - путь куда копировать
+// ttl - время жизни
+// meta - метаданные
+func (s *S3) CopyFileWithContext(ctx context.Context, src, dst string, ttl *time.Time, meta map[string]string) error {
 	// Тянем метаданные из исходного файла
 	// и обогащаем их новыми данными если таковые есть
-	head, err := s.client.HeadObject(&s3.HeadObjectInput{
-		Bucket: s.S3Bucket,
-		Key:    aws.String(src),
-	})
+	head, err := s.client.HeadObjectWithContext(
+		ctx,
+		&s3.HeadObjectInput{
+			Bucket: s.S3Bucket,
+			Key:    aws.String(src),
+		})
 
 	if err != nil {
+		if awsErr, ok := err.(awserr.Error); ok {
+			if awsErr.Code() == "NotFound" {
+				return ErrFileNotFound
+			}
+		}
 		return err
 	}
 
@@ -121,14 +149,16 @@ func (s *S3) CopyFile(src, dst string, ttl *time.Time, meta map[string]string) e
 		currentMeta[k] = v
 	}
 
-	_, err = s.client.CopyObject(&s3.CopyObjectInput{
-		Bucket:            s.S3Bucket,
-		CopySource:        aws.String(fmt.Sprintf("%s/%s", *s.S3Bucket, src)),
-		Key:               aws.String(dst),
-		Metadata:          aws.StringMap(currentMeta),
-		MetadataDirective: aws.String("REPLACE"),
-		Expires:           ttl,
-	})
+	_, err = s.client.CopyObjectWithContext(
+		ctx,
+		&s3.CopyObjectInput{
+			Bucket:            s.S3Bucket,
+			CopySource:        aws.String(fmt.Sprintf("%s/%s", *s.S3Bucket, src)),
+			Key:               aws.String(dst),
+			Metadata:          aws.StringMap(currentMeta),
+			MetadataDirective: aws.String("REPLACE"),
+			Expires:           ttl,
+		})
 
 	return err
 }
@@ -137,57 +167,82 @@ func (s *S3) CopyFile(src, dst string, ttl *time.Time, meta map[string]string) e
 // src - исходный путь к файлу
 // dst - путь куда переместить
 func (s *S3) MoveFile(src, dst string) error {
-	_, err := s.client.CopyObject(&s3.CopyObjectInput{
-		Bucket:     s.S3Bucket,
-		CopySource: aws.String(fmt.Sprintf("%s/%s", *s.S3Bucket, src)),
-		Key:        aws.String(dst),
-	})
+	return s.MoveFileWithContext(context.Background(), src, dst)
+}
+
+// MoveFileWithContext - перемещает файл
+// src - исходный путь к файлу
+// dst - путь куда переместить
+func (s *S3) MoveFileWithContext(ctx context.Context, src, dst string) error {
+	_, err := s.client.CopyObjectWithContext(
+		ctx,
+		&s3.CopyObjectInput{
+			Bucket:     s.S3Bucket,
+			CopySource: aws.String(fmt.Sprintf("%s/%s", *s.S3Bucket, src)),
+			Key:        aws.String(dst),
+		})
+
+	if err != nil {
+		if awsErr, ok := err.(awserr.Error); ok {
+			if awsErr.Code() == "NotFound" {
+				return ErrFileNotFound
+			}
+		}
+		return err
+	}
+
+	err = s.client.WaitUntilObjectExistsWithContext(
+		ctx,
+		&s3.HeadObjectInput{
+			Bucket: s.S3Bucket,
+			Key:    aws.String(dst),
+		})
 
 	if err != nil {
 		return err
 	}
 
-	err = s.client.WaitUntilObjectExists(&s3.HeadObjectInput{
-		Bucket: s.S3Bucket,
-		Key:    aws.String(dst),
-	})
+	_, err = s.client.DeleteObjectWithContext(
+		ctx,
+		&s3.DeleteObjectInput{
+			Bucket: s.S3Bucket,
+			Key:    aws.String(src),
+		})
 
 	if err != nil {
 		return err
 	}
 
-	_, err = s.client.DeleteObject(&s3.DeleteObjectInput{
-		Bucket: s.S3Bucket,
-		Key:    aws.String(src),
-	})
+	err = s.client.WaitUntilObjectNotExistsWithContext(
+		ctx,
+		&s3.HeadObjectInput{
+			Bucket: s.S3Bucket,
+			Key:    aws.String(src),
+		})
 
-	if err != nil {
-		return err
-	}
-
-	err = s.client.WaitUntilObjectNotExists(&s3.HeadObjectInput{
-		Bucket: s.S3Bucket,
-		Key:    aws.String(src),
-	})
-
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }
 
 // StreamToFile - записывает содержимое потока в файл
 // stream - поток
 // path - путь к файлу
 func (s *S3) StreamToFile(stream io.Reader, path string, ttl *time.Time) error {
+	return s.StreamToFileWithContext(context.Background(), stream, path, ttl)
+}
+
+// StreamToFile - записывает содержимое потока в файл
+// stream - поток
+// path - путь к файлу
+func (s *S3) StreamToFileWithContext(ctx context.Context, stream io.Reader, path string, ttl *time.Time) error {
 	buf := make([]byte, 1024*1024*5) // 5MB
 
-	resp, err := s.client.CreateMultipartUpload(&s3.CreateMultipartUploadInput{
-		Bucket:  s.S3Bucket,
-		Key:     aws.String(path),
-		Expires: ttl,
-	})
+	resp, err := s.client.CreateMultipartUploadWithContext(
+		ctx,
+		&s3.CreateMultipartUploadInput{
+			Bucket:  s.S3Bucket,
+			Key:     aws.String(path),
+			Expires: ttl,
+		})
 	if err != nil {
 		return err
 	}
@@ -206,16 +261,18 @@ func (s *S3) StreamToFile(stream io.Reader, path string, ttl *time.Time) error {
 
 		//fmt.Println("Uploading part", partNumber, "of", path, "size:", n)
 
-		completedPart, err := s.client.UploadPart(&s3.UploadPartInput{
-			Bucket:     s.S3Bucket,
-			Key:        aws.String(path),
-			UploadId:   resp.UploadId,
-			PartNumber: aws.Int64(partNumber),
-			Body:       bytes.NewReader(buf[:n]),
-		})
+		completedPart, err := s.client.UploadPartWithContext(
+			ctx,
+			&s3.UploadPartInput{
+				Bucket:     s.S3Bucket,
+				Key:        aws.String(path),
+				UploadId:   resp.UploadId,
+				PartNumber: aws.Int64(partNumber),
+				Body:       bytes.NewReader(buf[:n]),
+			})
 
 		if err != nil {
-			if abortErr := s.abortMultipartUpload(resp); abortErr != nil {
+			if abortErr := s.abortMultipartUpload(ctx, resp); abortErr != nil {
 				return abortErr
 			}
 			return err
@@ -229,7 +286,7 @@ func (s *S3) StreamToFile(stream io.Reader, path string, ttl *time.Time) error {
 		partNumber++
 	}
 
-	_, err = s.completeMultipartUpload(resp, completedParts)
+	_, err = s.completeMultipartUpload(ctx, resp, completedParts)
 
 	return err
 }
@@ -237,7 +294,13 @@ func (s *S3) StreamToFile(stream io.Reader, path string, ttl *time.Time) error {
 // GetFile - получает файл
 // path - путь к файлу
 func (s *S3) GetFile(path string) ([]byte, error) {
-	stream, err := s.FileReader(path, 0, 0)
+	return s.GetFileWithContext(context.Background(), path)
+}
+
+// GetFileWithContext - получает файл
+// path - путь к файлу
+func (s *S3) GetFileWithContext(ctx context.Context, path string) ([]byte, error) {
+	stream, err := s.FileReaderWithContext(ctx, path, 0, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -253,7 +316,16 @@ func (s *S3) GetFile(path string) ([]byte, error) {
 // length - длина
 // https://www.rfc-editor.org/rfc/rfc9110.html#name-range
 func (s *S3) GetFilePartially(path string, offset, length int64) ([]byte, error) {
-	stream, err := s.FileReader(path, offset, length)
+	return s.GetFilePartiallyWithContext(context.Background(), path, offset, length)
+}
+
+// GetFilePartiallyWithContext - получает часть файла
+// path - путь к файлу
+// offset - смещение от начала
+// length - длина
+// https://www.rfc-editor.org/rfc/rfc9110.html#name-range
+func (s *S3) GetFilePartiallyWithContext(ctx context.Context, path string, offset, length int64) ([]byte, error) {
+	stream, err := s.FileReaderWithContext(ctx, path, offset, length)
 	if err != nil {
 		return nil, err
 	}
@@ -268,6 +340,14 @@ func (s *S3) GetFilePartially(path string, offset, length int64) ([]byte, error)
 // offset - смещение от начала
 // length - длина
 func (s *S3) FileReader(path string, offset, length int64) (io.ReadCloser, error) {
+	return s.FileReaderWithContext(context.Background(), path, offset, length)
+}
+
+// FileReaderWithContext - возвращает io.ReadCloser для чтения файла
+// path - путь к файлу
+// offset - смещение от начала
+// length - длина
+func (s *S3) FileReaderWithContext(ctx context.Context, path string, offset, length int64) (io.ReadCloser, error) {
 	_range := ""
 
 	if length > 0 {
@@ -276,13 +356,20 @@ func (s *S3) FileReader(path string, offset, length int64) (io.ReadCloser, error
 		_range = fmt.Sprintf("bytes=%d-", offset)
 	}
 
-	out, err := s.client.GetObject(&s3.GetObjectInput{
-		Bucket: s.S3Bucket,
-		Key:    aws.String(path),
-		Range:  aws.String(_range),
-	})
+	out, err := s.client.GetObjectWithContext(
+		ctx,
+		&s3.GetObjectInput{
+			Bucket: s.S3Bucket,
+			Key:    aws.String(path),
+			Range:  aws.String(_range),
+		})
 
 	if err != nil {
+		if awsErr, ok := err.(awserr.Error); ok {
+			if awsErr.Code() == "NotFound" {
+				return nil, ErrFileNotFound
+			}
+		}
 		return nil, err
 	}
 
@@ -292,10 +379,26 @@ func (s *S3) FileReader(path string, offset, length int64) (io.ReadCloser, error
 // RemoveFile - удаляет файл
 // path - путь к файлу
 func (s *S3) RemoveFile(path string) error {
-	_, err := s.client.DeleteObject(&s3.DeleteObjectInput{
-		Bucket: s.S3Bucket,
-		Key:    aws.String(path),
-	})
+	return s.RemoveFileWithContext(context.Background(), path)
+}
+
+// RemoveFileWithContext - удаляет файл
+// path - путь к файлу
+func (s *S3) RemoveFileWithContext(ctx context.Context, path string) error {
+	_, err := s.client.DeleteObjectWithContext(
+		ctx,
+		&s3.DeleteObjectInput{
+			Bucket: s.S3Bucket,
+			Key:    aws.String(path),
+		})
+
+	if err != nil {
+		if awsErr, ok := err.(awserr.Error); ok {
+			if awsErr.Code() == "NotFound" {
+				return ErrFileNotFound
+			}
+		}
+	}
 
 	return err
 }
@@ -304,12 +407,26 @@ func (s *S3) RemoveFile(path string) error {
 // path - путь к файлу
 // os.FileInfo - возвращается неполный
 func (s *S3) Stat(path string) (os.FileInfo, map[string]string, error) {
-	out, err := s.client.HeadObject(&s3.HeadObjectInput{
-		Bucket: s.S3Bucket,
-		Key:    aws.String(path),
-	})
+	return s.StatWithContext(context.Background(), path)
+}
+
+// Stat - возвращает информацию о файле
+// path - путь к файлу
+// os.FileInfo - возвращается неполный
+func (s *S3) StatWithContext(ctx context.Context, path string) (os.FileInfo, map[string]string, error) {
+	out, err := s.client.HeadObjectWithContext(
+		ctx,
+		&s3.HeadObjectInput{
+			Bucket: s.S3Bucket,
+			Key:    aws.String(path),
+		})
 
 	if err != nil {
+		if awsErr, ok := err.(awserr.Error); ok {
+			if awsErr.Code() == "NotFound" {
+				return nil, nil, ErrFileNotFound
+			}
+		}
 		return nil, nil, err
 	}
 
@@ -324,20 +441,30 @@ func (s *S3) Stat(path string) (os.FileInfo, map[string]string, error) {
 // ClearDir - очищает директорию
 // path - путь к директории
 func (s *S3) ClearDir(path string) error {
-	list, err := s.client.ListObjectsV2(&s3.ListObjectsV2Input{
-		Bucket: s.S3Bucket,
-		Prefix: aws.String(path),
-	})
+	return s.ClearDirWithContext(context.Background(), path)
+}
+
+// ClearDir - очищает директорию
+// path - путь к директории
+func (s *S3) ClearDirWithContext(ctx context.Context, path string) error {
+	list, err := s.client.ListObjectsV2WithContext(
+		ctx,
+		&s3.ListObjectsV2Input{
+			Bucket: s.S3Bucket,
+			Prefix: aws.String(path),
+		})
 
 	if err != nil {
 		return err
 	}
 
 	for _, obj := range list.Contents {
-		_, err := s.client.DeleteObject(&s3.DeleteObjectInput{
-			Bucket: s.S3Bucket,
-			Key:    obj.Key,
-		})
+		_, err := s.client.DeleteObjectWithContext(
+			ctx,
+			&s3.DeleteObjectInput{
+				Bucket: s.S3Bucket,
+				Key:    obj.Key,
+			})
 		if err != nil {
 			return err
 		}
@@ -349,11 +476,19 @@ func (s *S3) ClearDir(path string) error {
 // MkdirAll - создает директорию
 // path - путь к директории
 func (s *S3) MkdirAll(path string) error {
-	_, err := s.client.PutObject(&s3.PutObjectInput{
-		Bucket: s.S3Bucket,
-		Key:    aws.String(path),
-		Body:   bytes.NewReader([]byte("")),
-	})
+	return s.MkdirAllWithContext(context.Background(), path)
+}
+
+// MkdirAllWithContext - создает директорию
+// path - путь к директории
+func (s *S3) MkdirAllWithContext(ctx context.Context, path string) error {
+	_, err := s.client.PutObjectWithContext(
+		ctx,
+		&s3.PutObjectInput{
+			Bucket: s.S3Bucket,
+			Key:    aws.String(path),
+			Body:   bytes.NewReader([]byte("")),
+		})
 
 	return err
 }
@@ -362,6 +497,13 @@ func (s *S3) MkdirAll(path string) error {
 // path - путь к файлу
 // data - данные для записи
 func (s *S3) CreateJsonFile(path string, data interface{}, ttl *time.Time, meta map[string]string) error {
+	return s.CreateJsonFileWithContext(context.Background(), path, data, ttl, meta)
+}
+
+// CreateJsonFileWithContext - создает json файл
+// path - путь к файлу
+// data - данные для записи
+func (s *S3) CreateJsonFileWithContext(ctx context.Context, path string, data interface{}, ttl *time.Time, meta map[string]string) error {
 	content, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		return err
@@ -373,7 +515,14 @@ func (s *S3) CreateJsonFile(path string, data interface{}, ttl *time.Time, meta 
 // path - путь к файлу
 // file - переменная для записи данных
 func (s *S3) GetJsonFile(path string, file interface{}) error {
-	content, err := s.GetFile(path)
+	return s.GetJsonFileWithContext(context.Background(), path, file)
+}
+
+// GetJsonFileWithContext - получает файл и десериализует его в переменную
+// path - путь к файлу
+// file - переменная для записи данных
+func (s *S3) GetJsonFileWithContext(ctx context.Context, path string, file interface{}) error {
+	content, err := s.GetFileWithContext(ctx, path)
 	if err != nil {
 		return err
 	}
@@ -383,17 +532,17 @@ func (s *S3) GetJsonFile(path string, file interface{}) error {
 	return json.Unmarshal(content, file)
 }
 
-func (s *S3) abortMultipartUpload(resp *s3.CreateMultipartUploadOutput) error {
+func (s *S3) abortMultipartUpload(ctx context.Context, resp *s3.CreateMultipartUploadOutput) error {
 	abortInput := &s3.AbortMultipartUploadInput{
 		Bucket:   resp.Bucket,
 		Key:      resp.Key,
 		UploadId: resp.UploadId,
 	}
-	_, err := s.client.AbortMultipartUpload(abortInput)
+	_, err := s.client.AbortMultipartUploadWithContext(ctx, abortInput)
 	return err
 }
 
-func (s *S3) completeMultipartUpload(resp *s3.CreateMultipartUploadOutput, completedParts []*s3.CompletedPart) (*s3.CompleteMultipartUploadOutput, error) {
+func (s *S3) completeMultipartUpload(ctx context.Context, resp *s3.CreateMultipartUploadOutput, completedParts []*s3.CompletedPart) (*s3.CompleteMultipartUploadOutput, error) {
 	completeInput := &s3.CompleteMultipartUploadInput{
 		Bucket:   s.S3Bucket,
 		Key:      resp.Key,
@@ -402,5 +551,5 @@ func (s *S3) completeMultipartUpload(resp *s3.CreateMultipartUploadOutput, compl
 			Parts: completedParts,
 		},
 	}
-	return s.client.CompleteMultipartUpload(completeInput)
+	return s.client.CompleteMultipartUploadWithContext(ctx, completeInput)
 }

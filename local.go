@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -31,6 +32,19 @@ func (l *Local) CreateFile(path string, file []byte, ttl *time.Time, meta map[st
 		return os.WriteFile(path+META_PREFIX, meta2Bytes(meta), perm)
 	}
 	return os.WriteFile(path, file, perm)
+}
+
+// CreateFileWithContext - создает файл
+// path - путь к файлу
+// file - содержимое файла
+// meta - метаданные файла
+func (l *Local) CreateFileWithContext(ctx context.Context, path string, file []byte, ttl *time.Time, meta map[string]string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return l.CreateFile(path, file, ttl, meta)
+	}
 }
 
 // CopyFile - копирует файл
@@ -89,10 +103,28 @@ func (l *Local) CopyFile(src, dst string, ttl *time.Time, meta map[string]string
 	return nil
 }
 
+// CopyFileWithContext - копирует файл
+// src - исходный путь к файлу
+// dst - путь куда копировать
+// ttl - время жизни
+// meta - метаданные
+func (l *Local) CopyFileWithContext(ctx context.Context, src, dst string, ttl *time.Time, meta map[string]string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return l.CopyFile(src, dst, ttl, meta)
+	}
+}
+
 // MoveFile - перемещает файл
 // src - исходный путь к файлу
 // dst - путь куда переместить
 func (l *Local) MoveFile(src, dst string) error {
+	if _, err := os.Stat(src); os.IsNotExist(err) {
+		return ErrFileNotFound
+	}
+
 	inputFile, err := os.Open(src)
 	if err != nil {
 		return err
@@ -120,7 +152,7 @@ func (l *Local) MoveFile(src, dst string) error {
 		return err
 	}
 
-	metaFile, err := os.Stat(src)
+	metaFile, err := os.Stat(src + META_PREFIX)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return err
@@ -159,6 +191,18 @@ func (l *Local) MoveFile(src, dst string) error {
 	return nil
 }
 
+// MoveFileWithContext - перемещает файл
+// src - исходный путь к файлу
+// dst - путь куда переместить
+func (l *Local) MoveFileWithContext(ctx context.Context, src, dst string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return l.MoveFile(src, dst)
+	}
+}
+
 // StreamToFile - записывает содержимое потока в файл
 // stream - поток
 // path - путь к файлу
@@ -188,6 +232,18 @@ func (l *Local) StreamToFile(stream io.Reader, path string, ttl *time.Time) erro
 	return nil
 }
 
+// StreamToFileWithContext - записывает содержимое потока в файл
+// stream - поток
+// path - путь к файлу
+func (l *Local) StreamToFileWithContext(ctx context.Context, stream io.Reader, path string, ttl *time.Time) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return l.StreamToFile(stream, path, ttl)
+	}
+}
+
 // GetFile - возвращает содержимое файла
 // path - путь к файлу
 func (l *Local) GetFile(path string) ([]byte, error) {
@@ -195,6 +251,17 @@ func (l *Local) GetFile(path string) ([]byte, error) {
 		return nil, nil
 	}
 	return os.ReadFile(path)
+}
+
+// GetFileWithContext - возвращает содержимое файла
+// path - путь к файлу
+func (l *Local) GetFileWithContext(ctx context.Context, path string) ([]byte, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+		return l.GetFile(path)
+	}
 }
 
 // GetFilePartially - возвращает часть содержимого файла
@@ -228,6 +295,18 @@ func (l *Local) GetFilePartially(path string, offset, length int64) ([]byte, err
 	return buf, nil
 }
 
+// GetFilePartiallyWithContext - возвращает часть содержимого файла
+// path - путь к файлу
+// offset - смещение от начала
+func (l *Local) GetFilePartiallyWithContext(ctx context.Context, path string, offset, length int64) ([]byte, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+		return l.GetFilePartially(path, offset, length)
+	}
+}
+
 // FileReader - открывает файл на чтение
 // path - путь к файлу
 // offset - смещение от начала
@@ -240,11 +319,39 @@ func (l *Local) FileReader(path string, offset, length int64) (io.ReadCloser, er
 	return os.Open(path)
 }
 
+// FileReaderWithContext - открывает файл на чтение
+// path - путь к файлу
+// offset - смещение от начала
+// length - длина
+func (l *Local) FileReaderWithContext(ctx context.Context, path string, offset, length int64) (io.ReadCloser, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+		return l.FileReader(path, offset, length)
+	}
+}
+
 // RemoveFile - удаляет файл
 // path - путь к файлу
 func (l *Local) RemoveFile(path string) error {
 	os.Remove(path + META_PREFIX)
-	return os.Remove(path)
+	err := os.Remove(path)
+	if err != nil && os.IsNotExist(err) {
+		return ErrFileNotFound
+	}
+	return err
+}
+
+// RemoveFileWithContext - удаляет файл
+// path - путь к файлу
+func (l *Local) RemoveFileWithContext(ctx context.Context, path string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return l.RemoveFile(path)
+	}
 }
 
 // Stat - возвращает информацию о файле и метаданные
@@ -252,6 +359,9 @@ func (l *Local) RemoveFile(path string) error {
 func (l *Local) Stat(path string) (os.FileInfo, map[string]string, error) {
 	info, err := os.Stat(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil, ErrFileNotFound
+		}
 		return nil, nil, err
 	}
 
@@ -264,9 +374,32 @@ func (l *Local) Stat(path string) (os.FileInfo, map[string]string, error) {
 	return info, bytes2Meta(meta), nil
 }
 
+// StatWithContext - возвращает информацию о файле и метаданные
+// path - путь к файлу
+func (l *Local) StatWithContext(ctx context.Context, path string) (os.FileInfo, map[string]string, error) {
+	select {
+	case <-ctx.Done():
+		return nil, nil, ctx.Err()
+	default:
+		return l.Stat(path)
+	}
+}
+
 // ClearDir - очищает директорию
 // path - путь к директории
 func (l *Local) ClearDir(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ErrFileNotFound
+		}
+		return err
+	}
+
+	if !info.IsDir() {
+		return ErrIsNotDir
+	}
+
 	d, err := os.Open(path)
 	if err != nil {
 		return err
@@ -285,10 +418,32 @@ func (l *Local) ClearDir(path string) error {
 	return nil
 }
 
+// ClearDirWithContext - очищает директорию
+// path - путь к директории
+func (l *Local) ClearDirWithContext(ctx context.Context, path string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return l.ClearDir(path)
+	}
+}
+
 // MkdirAll - создает директорию
 // path - путь к директории
 func (l *Local) MkdirAll(path string) error {
 	return os.MkdirAll(path, perm)
+}
+
+// MkdirAllWithContext - создает директорию
+// path - путь к директории
+func (l *Local) MkdirAllWithContext(ctx context.Context, path string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return l.MkdirAll(path)
+	}
 }
 
 // CreateJsonFile - создает файл с данными в формате JSON
@@ -304,6 +459,19 @@ func (l *Local) CreateJsonFile(path string, data interface{}, ttl *time.Time, me
 	return l.CreateFile(path, content, ttl, meta)
 }
 
+// CreateJsonFileWithContext - создает файл с данными в формате JSON
+// path - путь к файлу
+// data - данные
+// meta - метаданные
+func (l *Local) CreateJsonFileWithContext(ctx context.Context, path string, data interface{}, ttl *time.Time, meta map[string]string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return l.CreateJsonFile(path, data, ttl, meta)
+	}
+}
+
 // GetJsonFile - возвращает содержимое файла в формате JSON
 // path - путь к файлу
 // file - переменная для десериализации
@@ -316,4 +484,16 @@ func (l *Local) GetJsonFile(path string, file interface{}) error {
 		return nil
 	}
 	return json.Unmarshal(content, file)
+}
+
+// GetJsonFileWithContext - возвращает содержимое файла в формате JSON
+// path - путь к файлу
+// file - переменная для десериализации
+func (l *Local) GetJsonFileWithContext(ctx context.Context, path string, file interface{}) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return l.GetJsonFile(path, file)
+	}
 }
